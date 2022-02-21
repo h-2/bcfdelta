@@ -11,6 +11,7 @@ struct decode_options_t
 {
     std::filesystem::path input;
     std::filesystem::path output;
+    size_t                threads = std::max<size_t>(1, std::min<size_t>(8, std::thread::hardware_concurrency()));
 };
 
 decode_options_t parse_decode_arguments(seqan3::argument_parser & parser)
@@ -26,6 +27,15 @@ decode_options_t parse_decode_arguments(seqan3::argument_parser & parser)
                                  "The input file.",
                                  seqan3::input_file_validator{{"vcf", "vcf.gz", "bcf"}});
     parser.add_positional_option(options.output, "The output file.");//, seqan3::output_file_validator{{"vcf", "vcf.gz", "bcf"}});
+
+    parser.add_subsection("Performance:");
+
+    parser.add_option(options.threads,
+                      '@',
+                      "threads",
+                      "Maximum number of threads to use.",
+                      seqan3::option_spec::standard,
+                      seqan3::arithmetic_range_validator{1u, std::thread::hardware_concurrency() * 2});
 
     parser.parse();
 
@@ -117,8 +127,18 @@ void undo_delta(bio::var_io::default_record<> const & ref_record,
 
 void decode(decode_options_t const & options)
 {
-    bio::var_io::reader reader{options.input,
-                               bio::var_io::reader_options{ .field_types = bio::var_io::field_types<bio::ownership::deep>}};
+    size_t threads = options.threads  - 1; // subtract one for the main thread
+    size_t reader_threads = threads / 3;
+    size_t writer_threads = threads - reader_threads;
+
+    auto reader_options = bio::var_io::reader_options{
+        .field_types = bio::var_io::field_types<bio::ownership::deep>,
+        .stream_options = bio::transparent_istream_options{ .threads = reader_threads + 1} };
+
+    bio::var_io::reader reader{options.input, reader_options};
+
+    auto writer_options = bio::var_io::writer_options{
+        .stream_options = bio::transparent_ostream_options{ .threads = writer_threads + 1} };
 
     bio::var_io::writer writer{options.output};
 

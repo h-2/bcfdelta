@@ -7,6 +7,8 @@ inline constexpr std::string_view date    = "2022-02-18";
 #include "encode.hpp"
 #include "decode.hpp"
 
+static_assert(bio::compression_traits<bio::compression_format::bgzf>::available);
+
 int main(int argc, char **argv)
 {
     seqan3::argument_parser top_level_parser{"bcfdelta",
