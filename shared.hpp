@@ -5,7 +5,9 @@
 
 #include <bio/var_io/header.hpp>
 
-//!\brief Thrown if information given to output format didn't match expectations.
+inline constexpr std::string_view version = "0.1.0";
+inline constexpr std::string_view date    = "2022-02-18";
+
 struct delta_error : std::runtime_error
 {
     delta_error(auto const & ... args) : std::runtime_error{(bio::detail::to_string(args) + ...)}
@@ -62,10 +64,10 @@ struct delta_visitor
             if (cur_rng.size() != n_sample)
                 throw delta_error{"Current outer range size: ", cur_rng.size(), ". Expected: ", n_sample, " (number of samples)."};
 
-            constexpr auto error_or_not = [] (auto const & ... args)
+            constexpr auto error_or_not = [] (auto && ... args)
             {
                 if constexpr (!skip_problematic)
-                    throw delta_error{args...};
+                    throw delta_error{std::forward<decltype(args)>(args)...};
             };
 
             if constexpr (cur_dim == 1)

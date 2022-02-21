@@ -5,7 +5,7 @@
 #include <bio/var_io/reader.hpp>
 #include <bio/var_io/writer.hpp>
 
-#include "misc.hpp"
+#include "shared.hpp"
 
 struct encode_options_t
 {
@@ -15,7 +15,7 @@ struct encode_options_t
     bool                  delta_compress = true;
     bool                  split_fields = false;
     bool                  compress_ints   = true;
-    bool                  compress_floats = true;
+    bool                  compress_floats = false;
     bool                  compress_chars  = false;
     bool                  skip_problematic = true;
     size_t                threads = std::max<size_t>(2, std::min<size_t>(8, std::thread::hardware_concurrency()));

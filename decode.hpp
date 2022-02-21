@@ -5,7 +5,7 @@
 #include <bio/var_io/reader.hpp>
 #include <bio/var_io/writer.hpp>
 
-#include "misc.hpp"
+#include "shared.hpp"
 
 struct decode_options_t
 {

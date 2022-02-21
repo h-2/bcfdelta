@@ -1,9 +1,6 @@
 
 #include <seqan3/argument_parser/all.hpp>
 
-inline constexpr std::string_view version = "0.1.0";
-inline constexpr std::string_view date    = "2022-02-18";
-
 #include "encode.hpp"
 #include "decode.hpp"
 
