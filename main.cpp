@@ -1,18 +1,20 @@
 
 #include <seqan3/argument_parser/all.hpp>
 
-#include "encode.hpp"
 #include "decode.hpp"
+#include "encode.hpp"
 
 static_assert(bio::compression_traits<bio::compression_format::bgzf>::available);
 
-int main(int argc, char **argv)
+int main(int argc, char ** argv)
 {
-    seqan3::argument_parser top_level_parser{"bcfdelta",
-                                             argc,
-                                             argv,
-                                             seqan3::update_notifications::off,
-                                             {"encode", "decode"}};
+    seqan3::argument_parser top_level_parser{
+      "bcfdelta",
+      argc,
+      argv,
+      seqan3::update_notifications::off,
+      {"encode", "decode"}
+    };
 
     top_level_parser.info.version           = version;
     top_level_parser.info.date              = date;
@@ -46,5 +48,4 @@ int main(int argc, char **argv)
         seqan3::debug_stream << "[bcfdelta] " << ext.what() << "\n"; // customise your error message
         return 1;
     }
-
 }

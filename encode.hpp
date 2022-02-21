@@ -11,12 +11,12 @@ struct encode_options_t
 {
     std::filesystem::path input;
     std::filesystem::path output;
-    uint64_t              ref_freq = 10'000;
-    bool                  delta_compress = true;
-    bool                  split_fields = false;
-    bool                  compress_ints   = true;
-    bool                  compress_floats = false;
-    bool                  compress_chars  = false;
+    uint64_t              ref_freq         = 10'000;
+    bool                  delta_compress   = true;
+    bool                  split_fields     = false;
+    bool                  compress_ints    = true;
+    bool                  compress_floats  = false;
+    bool                  compress_chars   = false;
     bool                  skip_problematic = true;
     size_t                threads = std::max<size_t>(2, std::min<size_t>(8, std::thread::hardware_concurrency()));
 };
@@ -32,9 +32,11 @@ encode_options_t parse_encode_arguments(seqan3::argument_parser & parser)
 
     parser.add_positional_option(options.input,
                                  "The input file.",
-                                 seqan3::input_file_validator{{"vcf", "vcf.gz", "bcf"}});
-    parser.add_positional_option(options.output, "The output file.");//, seqan3::output_file_validator{{"vcf", "vcf.gz", "bcf"}});
-
+                                 seqan3::input_file_validator{
+                                   {"vcf", "vcf.gz", "bcf"}
+    });
+    parser.add_positional_option(options.output,
+                                 "The output file."); //, seqan3::output_file_validator{{"vcf", "vcf.gz", "bcf"}});
 
     parser.add_subsection("Which data to compress:");
 
@@ -50,10 +52,7 @@ encode_options_t parse_encode_arguments(seqan3::argument_parser & parser)
                       "Split certain fields so that their layout becomes better compressible.",
                       seqan3::option_spec::hidden);
 
-    parser.add_option(options.compress_ints,
-                      '\0',
-                      "compress-ints",
-                      "Delta-compress integers.");
+    parser.add_option(options.compress_ints, '\0', "compress-ints", "Delta-compress integers.");
 
     parser.add_option(options.compress_floats,
                       '\0',
@@ -112,7 +111,9 @@ void do_delta(bio::var_io::default_record<> const & last_record,
                 if (!bio::detail::type_id_is_compatible(bio::var_io::value_type_id{it->value.index()},
                                                         bio::var_io::value_type_id{lit->value.index()}))
                 {
-                    throw delta_error{"The type of this record's ", it->id, " field did is not compatible with the previous record."};
+                    throw delta_error{"The type of this record's ",
+                                      it->id,
+                                      " field did is not compatible with the previous record."};
                 }
 
                 if (options.skip_problematic)
@@ -138,10 +139,11 @@ void do_split(bio::var_io::default_record<> & record)
     {
         if (it->id == "AD")
         {
-            bio::var_io::genotype_element<bio::ownership::deep> ad_ref{.id = "AD_REF" };
+            bio::var_io::genotype_element<bio::ownership::deep> ad_ref{.id = "AD_REF"};
             auto & ad_ref_vec = ad_ref.value.emplace<std::vector<int8_t>>();
 
-            bio::var_io::genotype_element<bio::ownership::deep> ad_alt{.id = "AD_ALT" };;
+            bio::var_io::genotype_element<bio::ownership::deep> ad_alt{.id = "AD_ALT"};
+            ;
             auto & ad_alt_vec = ad_alt.value.emplace<std::vector<std::vector<int8_t>>>();
 
             // the following assumes VCF input; TODO use std::visit
@@ -165,10 +167,11 @@ void do_split(bio::var_io::default_record<> & record)
     {
         if (it->id == "PL")
         {
-            bio::var_io::genotype_element<bio::ownership::deep> pl_shared{.id = "PL_SHARED" };
+            bio::var_io::genotype_element<bio::ownership::deep> pl_shared{.id = "PL_SHARED"};
             auto & pl_shared_vec = pl_shared.value.emplace<std::vector<std::vector<int16_t>>>();
 
-            bio::var_io::genotype_element<bio::ownership::deep> pl_uniq{.id = "PL_UNIQ" };;
+            bio::var_io::genotype_element<bio::ownership::deep> pl_uniq{.id = "PL_UNIQ"};
+            ;
             auto & pl_uniq_vec = pl_uniq.value.emplace<std::vector<std::vector<int16_t>>>();
 
             // the following assumes VCF input; TODO use std::visit
@@ -182,7 +185,7 @@ void do_split(bio::var_io::default_record<> & record)
                 if (inner_vec.size() < 3)
                     break;
 
-                //TODO properly deduce which values to put where
+                // TODO properly deduce which values to put where
                 pl_shared_vec.back().push_back(inner_vec[0]);
                 pl_shared_vec.back().push_back(inner_vec[2]);
                 pl_uniq_vec.back().push_back(inner_vec[1]);
@@ -208,18 +211,18 @@ void do_split(bio::var_io::default_record<> & record)
 
 void encode(encode_options_t const & options)
 {
-    size_t threads = options.threads  - 1; // subtract one for the main thread
+    size_t threads        = options.threads - 1; // subtract one for the main thread
     size_t reader_threads = threads / 3;
     size_t writer_threads = threads - reader_threads;
 
-    auto reader_options = bio::var_io::reader_options{
-        .field_types = bio::var_io::field_types<bio::ownership::deep>,
-        .stream_options = bio::transparent_istream_options{ .threads = reader_threads + 1} };
+    auto reader_options =
+      bio::var_io::reader_options{.field_types    = bio::var_io::field_types<bio::ownership::deep>,
+                                  .stream_options = bio::transparent_istream_options{.threads = reader_threads + 1}};
 
     bio::var_io::reader reader{options.input, reader_options};
 
-    auto writer_options = bio::var_io::writer_options{
-        .stream_options = bio::transparent_ostream_options{ .threads = writer_threads + 1} };
+    auto writer_options =
+      bio::var_io::writer_options{.stream_options = bio::transparent_ostream_options{.threads = writer_threads + 1}};
 
     bio::var_io::writer writer{options.output, writer_options};
 
@@ -233,24 +236,24 @@ void encode(encode_options_t const & options)
                                .number      = bio::var_io::header_number::A,
                                .type        = bio::var_io::value_type_id::vector_of_int8,
                                .description = "ALT entries of AD field."});
-    //     hdr.formats.back().other_fields["Encoding"] = "RunLengthEncoding";
+        //     hdr.formats.back().other_fields["Encoding"] = "RunLengthEncoding";
 
         // add ad_ref
-        hdr.formats.push_back({ .id          = "AD_REF",
-                                .number      = 1,
-                                .type        = bio::var_io::value_type_id::int8,
-                                .description = "REF entry of AD field."});
+        hdr.formats.push_back({.id          = "AD_REF",
+                               .number      = 1,
+                               .type        = bio::var_io::value_type_id::int8,
+                               .description = "REF entry of AD field."});
 
-        hdr.formats.push_back({ .id          = "PL_SHARED",
-                                .number      = bio::var_io::header_number::dot,
-                                .type        = bio::var_io::value_type_id::int8,
-                                .description = "PL values that are often shared in a record."});
-    //     hdr.formats.back().other_fields["Encoding"] = "RunLengthEncoding";
+        hdr.formats.push_back({.id          = "PL_SHARED",
+                               .number      = bio::var_io::header_number::dot,
+                               .type        = bio::var_io::value_type_id::int8,
+                               .description = "PL values that are often shared in a record."});
+        //     hdr.formats.back().other_fields["Encoding"] = "RunLengthEncoding";
 
-        hdr.formats.push_back({ .id          = "PL_UNIQ",
-                                .number      = bio::var_io::header_number::A,
-                                .type        = bio::var_io::value_type_id::int8,
-                                .description = "PL values that are usually specific to sample."});
+        hdr.formats.push_back({.id          = "PL_UNIQ",
+                               .number      = bio::var_io::header_number::A,
+                               .type        = bio::var_io::value_type_id::int8,
+                               .description = "PL values that are usually specific to sample."});
     }
 
     if (options.delta_compress)
@@ -263,19 +266,20 @@ void encode(encode_options_t const & options)
 
         if (!hdr.string_to_info_pos().contains("DELTA_COMP"))
         {
-            bio::var_io::header::info_t info{ .id           = "DELTA_COMP",
-                                              .number       = 0,
-                                              .type         = bio::var_io::value_type_id::flag,
-                                              .description  = "Records with this flag have delta-compressed fields." };
+            bio::var_io::header::info_t info{.id          = "DELTA_COMP",
+                                             .number      = 0,
+                                             .type        = bio::var_io::value_type_id::flag,
+                                             .description = "Records with this flag have delta-compressed fields."};
             hdr.infos.push_back(std::move(info));
         }
 
         if (!hdr.string_to_info_pos().contains("DELTA_REF"))
         {
-            bio::var_io::header::info_t info{ .id           = "DELTA_REF",
-                                              .number       = 0,
-                                              .type         = bio::var_io::value_type_id::flag,
-                                              .description  = "This record is an 'anchor' for subsequent compressed records." };
+            bio::var_io::header::info_t info{.id     = "DELTA_REF",
+                                             .number = 0,
+                                             .type   = bio::var_io::value_type_id::flag,
+                                             .description =
+                                               "This record is an 'anchor' for subsequent compressed records."};
             hdr.infos.push_back(std::move(info));
         }
 
@@ -312,7 +316,7 @@ void encode(encode_options_t const & options)
     std::unique_ptr<bio::var_io::default_record<>> lrecord{new bio::var_io::default_record<>};
     std::unique_ptr<bio::var_io::default_record<>> brecord{new bio::var_io::default_record<>};
     lrecord->chrom() = "invalid";
-    lrecord->pos() = -1;
+    lrecord->pos()   = -1;
 
     for (bio::var_io::default_record<> & record : reader)
     {
@@ -330,8 +334,8 @@ void encode(encode_options_t const & options)
             bak_record = record;
 
             // this is a "reference record"
-            if ((record.alt().size() == 1) &&                   // multi-allelic can never be reference
-                (last_record.chrom() != record.chrom()) ||
+            if ((record.alt().size() == 1) && // multi-allelic can never be reference
+                  (last_record.chrom() != record.chrom()) ||
                 (last_record.pos() / options.ref_freq != record.pos() / options.ref_freq))
             {
                 record.info().push_back({.id = "DELTA_REF", .value = true});

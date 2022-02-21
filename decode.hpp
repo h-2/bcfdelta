@@ -25,8 +25,11 @@ decode_options_t parse_decode_arguments(seqan3::argument_parser & parser)
 
     parser.add_positional_option(options.input,
                                  "The input file.",
-                                 seqan3::input_file_validator{{"vcf", "vcf.gz", "bcf"}});
-    parser.add_positional_option(options.output, "The output file.");//, seqan3::output_file_validator{{"vcf", "vcf.gz", "bcf"}});
+                                 seqan3::input_file_validator{
+                                   {"vcf", "vcf.gz", "bcf"}
+    });
+    parser.add_positional_option(options.output,
+                                 "The output file."); //, seqan3::output_file_validator{{"vcf", "vcf.gz", "bcf"}});
 
     parser.add_subsection("Performance:");
 
@@ -64,48 +67,48 @@ void undo_delta(bio::var_io::default_record<> const & ref_record,
                 {
                     case bio::var_io::value_type_id::int8:
                     case bio::var_io::value_type_id::int16:
-                    {
-                        auto fun = [&] (auto & rng)
                         {
-                            using rng_t = decltype(rng);
-                            if constexpr (std::same_as<rng_t, std::vector<int8_t> &> ||
-                                          std::same_as<rng_t, std::vector<int16_t> &>)
+                            auto fun = [&](auto & rng)
                             {
-                                bio::detail::sized_range_copy(rng, vec32_buffer);
-                            }
-                            else
-                            {
-                                throw std::runtime_error{"Unreachable code reached."};
-                            }
-                        };
+                                using rng_t = decltype(rng);
+                                if constexpr (std::same_as<rng_t, std::vector<int8_t> &> ||
+                                              std::same_as<rng_t, std::vector<int16_t> &>)
+                                {
+                                    bio::detail::sized_range_copy(rng, vec32_buffer);
+                                }
+                                else
+                                {
+                                    throw std::runtime_error{"Unreachable code reached."};
+                                }
+                            };
 
-                        std::visit(fun, it->value);
-                        it->value = std::move(vec32_buffer);
-                        break;
-                    }
+                            std::visit(fun, it->value);
+                            it->value = std::move(vec32_buffer);
+                            break;
+                        }
                     case bio::var_io::value_type_id::vector_of_int8:
                     case bio::var_io::value_type_id::vector_of_int16:
-                    {
-                        auto fun = [&] (auto & rng)
                         {
-                            using rng_t = decltype(rng);
-                            if constexpr (std::same_as<rng_t, std::vector<std::vector<int8_t>> &> ||
-                                          std::same_as<rng_t, std::vector<std::vector<int16_t>> &>)
+                            auto fun = [&](auto & rng)
                             {
-                                vecvec32_buffer.resize(std::ranges::size(rng));
-                                for (size_t i = 0; i < std::ranges::size(rng); ++i)
-                                    bio::detail::sized_range_copy(rng[i], vecvec32_buffer[i]);
-                            }
-                            else
-                            {
-                                throw std::runtime_error{"Unreachable code reached."};
-                            }
-                        };
+                                using rng_t = decltype(rng);
+                                if constexpr (std::same_as<rng_t, std::vector<std::vector<int8_t>> &> ||
+                                              std::same_as<rng_t, std::vector<std::vector<int16_t>> &>)
+                                {
+                                    vecvec32_buffer.resize(std::ranges::size(rng));
+                                    for (size_t i = 0; i < std::ranges::size(rng); ++i)
+                                        bio::detail::sized_range_copy(rng[i], vecvec32_buffer[i]);
+                                }
+                                else
+                                {
+                                    throw std::runtime_error{"Unreachable code reached."};
+                                }
+                            };
 
-                        std::visit(fun, it->value);
-                        it->value = std::move(vecvec32_buffer);
-                        break;
-                    }
+                            std::visit(fun, it->value);
+                            it->value = std::move(vecvec32_buffer);
+                            break;
+                        }
                     default:
                         break;
                 }
@@ -127,23 +130,23 @@ void undo_delta(bio::var_io::default_record<> const & ref_record,
 
 void decode(decode_options_t const & options)
 {
-    size_t threads = options.threads  - 1; // subtract one for the main thread
+    size_t threads        = options.threads - 1; // subtract one for the main thread
     size_t reader_threads = threads / 3;
     size_t writer_threads = threads - reader_threads;
 
-    auto reader_options = bio::var_io::reader_options{
-        .field_types = bio::var_io::field_types<bio::ownership::deep>,
-        .stream_options = bio::transparent_istream_options{ .threads = reader_threads + 1} };
+    auto reader_options =
+      bio::var_io::reader_options{.field_types    = bio::var_io::field_types<bio::ownership::deep>,
+                                  .stream_options = bio::transparent_istream_options{.threads = reader_threads + 1}};
 
     bio::var_io::reader reader{options.input, reader_options};
 
-    auto writer_options = bio::var_io::writer_options{
-        .stream_options = bio::transparent_ostream_options{ .threads = writer_threads + 1} };
+    auto writer_options =
+      bio::var_io::writer_options{.stream_options = bio::transparent_ostream_options{.threads = writer_threads + 1}};
 
     bio::var_io::writer writer{options.output};
 
-    bio::var_io::header const & in_hdr = reader.header();
-    bio::var_io::header out_hdr = in_hdr;
+    bio::var_io::header const & in_hdr  = reader.header();
+    bio::var_io::header         out_hdr = in_hdr;
 
     if (!out_hdr.string_to_info_pos().contains("DELTA_COMP") || !out_hdr.string_to_info_pos().contains("DELTA_REF"))
     {
@@ -152,10 +155,9 @@ void decode(decode_options_t const & options)
     }
 
     /** clean up the out-header **/
-    std::erase_if(out_hdr.infos, [] (bio::var_io::header::info_t const & info)
-    {
-        return info.id == "DELTA_COMP" || info.id == "DELTA_REF";
-    });
+    std::erase_if(out_hdr.infos,
+                  [](bio::var_io::header::info_t const & info)
+                  { return info.id == "DELTA_COMP" || info.id == "DELTA_REF"; });
 
     for (bio::var_io::header::format_t & format : out_hdr.formats)
     {
@@ -166,15 +168,15 @@ void decode(decode_options_t const & options)
     writer.set_header(out_hdr);
 
     /** decode **/
-    bio::var_io::default_record<> ref_record;
-    std::vector<int32_t> vec32_buffer;
+    bio::var_io::default_record<>     ref_record;
+    std::vector<int32_t>              vec32_buffer;
     std::vector<std::vector<int32_t>> vecvec32_buffer;
 
-    //TODO add check that first record is REF
+    // TODO add check that first record is REF
     for (bio::var_io::default_record<> & record : reader)
     {
         bool needs_decompression = false;
-        bool is_reference = false;
+        bool is_reference        = false;
 
         for (bio::var_io::info_element<bio::ownership::deep> const & info : record.info())
         {
@@ -190,10 +192,8 @@ void decode(decode_options_t const & options)
             }
         }
 
-        std::erase_if(record.info(), [] (auto const & info)
-        {
-            return info.id == "DELTA_REF" || info.id == "DELTA_COMP";
-        });
+        std::erase_if(record.info(),
+                      [](auto const & info) { return info.id == "DELTA_REF" || info.id == "DELTA_COMP"; });
 
         if (needs_decompression)
             undo_delta(ref_record, record, in_hdr, vec32_buffer, vecvec32_buffer);

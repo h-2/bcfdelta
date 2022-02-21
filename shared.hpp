@@ -10,61 +10,70 @@ inline constexpr std::string_view date    = "2022-02-18";
 
 struct delta_error : std::runtime_error
 {
-    delta_error(auto const & ... args) : std::runtime_error{(bio::detail::to_string(args) + ...)}
-    {}
+    delta_error(auto const &... args) : std::runtime_error{(bio::detail::to_string(args) + ...)} {}
 };
 
 template <typename T1, typename T2>
 concept compatible_alph = (std::same_as<T1, char> && std::same_as<T2, char>) ||
-                          (!std::same_as<T1, char> && !std::same_as<T2, char> && std::integral<T1> && std::integral<T2>) ||
-                           (std::same_as<T1, float> && std::same_as<T1, float>);
+                          (!std::same_as<T1, char> && !std::same_as<T2, char> && std::integral<T1> &&
+                           std::integral<T2>) ||
+                          (std::same_as<T1, float> && std::same_as<T1, float>);
 
 template <typename op_t = std::minus<>, bool skip_problematic = true>
 struct delta_visitor
 {
     int32_t number{};
-    size_t n_alts{};
+    size_t  n_alts{};
 
     bio::var_io::header const * hdr_ptr = nullptr;
 
     static constexpr op_t op_impl{};
 
     static constexpr auto op = bio::detail::overloaded{
-        [] (float const cur, float const last) -> float
-        {
-            union U
-            {
-                float f;
-                int32_t i;
-            };
-            // undefined behaviour for the win!
-            U u{cur};
-            u.i ^= U{last}.i;
-            return u.f;
-        },
-        [] <typename cur_t, typename last_t> (cur_t const cur, last_t const last) -> cur_t
-        {
-            return (cur == bio::var_io::missing_value<cur_t> || last == bio::var_io::missing_value<last_t>)
-                    ? cur : op_impl(cur, last);
-        }};
+      [](float const cur, float const last) -> float
+      {
+          union U
+          {
+              float   f;
+              int32_t i;
+          };
+          // undefined behaviour for the win!
+          U u{cur};
+          u.i ^= U{last}.i;
+          return u.f;
+      },
+      []<typename cur_t, typename last_t>(cur_t const cur, last_t const last) -> cur_t
+      {
+          return (cur == bio::var_io::missing_value<cur_t> || last == bio::var_io::missing_value<last_t>)
+                   ? cur
+                   : op_impl(cur, last);
+      }};
 
     template <typename last_rng_t, typename cur_rng_t>
     void operator()(last_rng_t & last_rng, cur_rng_t & cur_rng) const
     {
-        using            last_alph = seqan3::range_innermost_value_t<last_rng_t>;
-        constexpr size_t last_dim  = seqan3::range_dimension_v<last_rng_t>;
-        using            cur_alph  = seqan3::range_innermost_value_t<cur_rng_t>;
-        constexpr size_t cur_dim   = seqan3::range_dimension_v<cur_rng_t>;
+        using last_alph           = seqan3::range_innermost_value_t<last_rng_t>;
+        constexpr size_t last_dim = seqan3::range_dimension_v<last_rng_t>;
+        using cur_alph            = seqan3::range_innermost_value_t<cur_rng_t>;
+        constexpr size_t cur_dim  = seqan3::range_dimension_v<cur_rng_t>;
 
         if constexpr (compatible_alph<last_alph, cur_alph> && last_dim == cur_dim)
         {
             size_t const n_sample = hdr_ptr->column_labels.size() - 9;
             if (last_rng.size() != n_sample)
-                throw delta_error{"Last outer range size: ", last_rng.size(), ". Expected: ", n_sample, " (number of samples)."};
+                throw delta_error{"Last outer range size: ",
+                                  last_rng.size(),
+                                  ". Expected: ",
+                                  n_sample,
+                                  " (number of samples)."};
             if (cur_rng.size() != n_sample)
-                throw delta_error{"Current outer range size: ", cur_rng.size(), ". Expected: ", n_sample, " (number of samples)."};
+                throw delta_error{"Current outer range size: ",
+                                  cur_rng.size(),
+                                  ". Expected: ",
+                                  n_sample,
+                                  " (number of samples)."};
 
-            constexpr auto error_or_not = [] (auto && ... args)
+            constexpr auto error_or_not = [](auto &&... args)
             {
                 if constexpr (!skip_problematic)
                     throw delta_error{std::forward<decltype(args)>(args)...};
@@ -99,7 +108,6 @@ struct delta_visitor
                                 for (size_t j = 0; j < last_rng[i].size(); ++j)
                                     cur_rng[i][j] = op(cur_rng[i][j], last_rng[i][j]);
                             }
-
                         }
                         // else it cannot be compressed
                         break;
@@ -131,7 +139,11 @@ struct delta_visitor
                             }
                             if (cur_rng[i].size() != n_alts + 1)
                             {
-                                error_or_not("Current range size: ", cur_rng[i].size(), ". Expected: ", n_alts + 1, ".");
+                                error_or_not("Current range size: ",
+                                             cur_rng[i].size(),
+                                             ". Expected: ",
+                                             n_alts + 1,
+                                             ".");
                                 continue;
                             }
 
@@ -142,39 +154,43 @@ struct delta_visitor
                         }
                         break;
                     case bio::var_io::header_number::G:
-                    {
-                        // see spec
-                        auto formula = [] (size_t const a, size_t const b) { return (b*(b + 1)) / 2 + a; };
-
-                        size_t const inner_size = formula(n_alts, n_alts) + 1;
-
-                        for (size_t i = 0; i < last_rng.size(); ++i)
                         {
-                            if (last_rng[i].size() != 3)
+                            // see spec
+                            auto formula = [](size_t const a, size_t const b) { return (b * (b + 1)) / 2 + a; };
+
+                            size_t const inner_size = formula(n_alts, n_alts) + 1;
+
+                            for (size_t i = 0; i < last_rng.size(); ++i)
                             {
-                                error_or_not("Last range size: ", last_rng[i].size(), ". Expected: ", 3, ".");
-                                continue;
+                                if (last_rng[i].size() != 3)
+                                {
+                                    error_or_not("Last range size: ", last_rng[i].size(), ". Expected: ", 3, ".");
+                                    continue;
+                                }
+                                if (cur_rng[i].size() != inner_size)
+                                {
+                                    error_or_not("Current range size: ",
+                                                 cur_rng[i].size(),
+                                                 ". Expected: ",
+                                                 inner_size,
+                                                 ".");
+                                    continue;
+                                }
+
+                                // [0, 0] mapped to first value
+                                cur_rng[i][0] = op(cur_rng[i][0], last_rng[i][0]);
+
+                                // [0, k>=1] mapped to second
+                                for (size_t k = 1; k <= n_alts; ++k)
+                                    cur_rng[i][formula(0, k)] = op(cur_rng[i][formula(0, k)], last_rng[i][1]);
+
+                                // [j>=1, k>=1] mapped to third
+                                for (size_t j = 1; j <= n_alts; ++j)
+                                    for (size_t k = j; k <= n_alts; ++k)
+                                        cur_rng[i][formula(j, k)] = op(cur_rng[i][formula(j, k)], last_rng[i][2]);
                             }
-                            if (cur_rng[i].size() != inner_size)
-                            {
-                                error_or_not("Current range size: ", cur_rng[i].size(), ". Expected: ", inner_size, ".");
-                                continue;
-                            }
-
-                            // [0, 0] mapped to first value
-                            cur_rng[i][0] = op(cur_rng[i][0], last_rng[i][0]);
-
-                            // [0, k>=1] mapped to second
-                            for (size_t k = 1; k <= n_alts; ++k)
-                                cur_rng[i][formula(0, k)] = op(cur_rng[i][formula(0, k)], last_rng[i][1]);
-
-                            // [j>=1, k>=1] mapped to third
-                            for (size_t j = 1; j <= n_alts; ++j)
-                                for (size_t k = j; k <= n_alts; ++k)
-                                    cur_rng[i][formula(j, k)] = op(cur_rng[i][formula(j, k)], last_rng[i][2]);
+                            break;
                         }
-                        break;
-                    }
                     default: // any number > 1
                         assert(number > 1);
                         for (size_t i = 0; i < last_rng.size(); ++i)
