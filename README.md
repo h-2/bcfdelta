@@ -7,9 +7,8 @@ It differs from other "improved" VCF formats or compressors in the following way
   * No new format is created, instead the values inside the existing format are subtracted in a way that improves their compressability.¹
   * Works with with VCF and BCF but the improvement on BCF is much better.
   * Very simple compression scheme based on delta-compression.
-  * Compression ratio is better than most other tools.
-  * It does not require a high number of samples to be useful.
-  * Moderate memory usage (≤ 3 uncompressed records).
+  * Good at compressing files with many samples and mostly Integer-fields.
+  * Low-to-Moderate memory usage (≤ 3 uncompressed records).
 
 See the [wiki](https://github.com/h-2/bcfdelta/wiki) for a full description of the compression and a comparison with other applications.
 
