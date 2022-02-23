@@ -119,7 +119,7 @@ void undo_delta(bio::var_io::default_record<> const & ref_record,
                     throw std::runtime_error{"Incompatible types in variants"};
                 }
 
-                delta_visitor<std::plus<>> visitor{format.number, record.alt().size(), &in_hdr};
+                delta_visitor<std::plus<>> visitor{it->id, format.number, record.alt().size(), &in_hdr};
 
                 std::visit(visitor, lit->value, it->value);
                 break;

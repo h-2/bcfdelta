@@ -19,13 +19,18 @@ concept compatible_alph = (std::same_as<T1, char> && std::same_as<T2, char>) ||
                            std::integral<T2>) ||
                           (std::same_as<T1, float> && std::same_as<T1, float>);
 
+
+// see VCF spec
+constexpr size_t formulaG(size_t const a, size_t const b) { return (b * (b + 1)) / 2 + a; };
+
 template <typename op_t = std::minus<>, bool skip_problematic = true>
 struct delta_visitor
 {
-    int32_t number{};
-    size_t  n_alts{};
+    std::string_view const id{};
+    int32_t const          number{};
+    size_t const           n_alts{};
 
-    bio::var_io::header const * hdr_ptr = nullptr;
+    bio::var_io::header const * const hdr_ptr = nullptr;
 
     static constexpr op_t op_impl{};
 
@@ -109,6 +114,17 @@ struct delta_visitor
                                     cur_rng[i][j] = op(cur_rng[i][j], last_rng[i][j]);
                             }
                         }
+                        else if (id == "PL3") // this is n_alts per one
+                        {
+                            for (size_t i = 0; i < n_sample; ++i)
+                            {
+                                if (last_rng[i].size() != 1)
+                                    continue;
+
+                                for (size_t j = 0; j < cur_rng[i].size(); ++j)
+                                    cur_rng[i][j] = op(cur_rng[i][j], last_rng[i][0]);
+                            }
+                        }
                         // else it cannot be compressed
                         break;
                     case bio::var_io::header_number::A:
@@ -155,10 +171,7 @@ struct delta_visitor
                         break;
                     case bio::var_io::header_number::G:
                         {
-                            // see spec
-                            auto formula = [](size_t const a, size_t const b) { return (b * (b + 1)) / 2 + a; };
-
-                            size_t const inner_size = formula(n_alts, n_alts) + 1;
+                            size_t const inner_size = formulaG(n_alts, n_alts) + 1;
 
                             for (size_t i = 0; i < last_rng.size(); ++i)
                             {
@@ -182,12 +195,12 @@ struct delta_visitor
 
                                 // [0, k>=1] mapped to second
                                 for (size_t k = 1; k <= n_alts; ++k)
-                                    cur_rng[i][formula(0, k)] = op(cur_rng[i][formula(0, k)], last_rng[i][1]);
+                                    cur_rng[i][formulaG(0, k)] = op(cur_rng[i][formulaG(0, k)], last_rng[i][1]);
 
                                 // [j>=1, k>=1] mapped to third
                                 for (size_t j = 1; j <= n_alts; ++j)
                                     for (size_t k = j; k <= n_alts; ++k)
-                                        cur_rng[i][formula(j, k)] = op(cur_rng[i][formula(j, k)], last_rng[i][2]);
+                                        cur_rng[i][formulaG(j, k)] = op(cur_rng[i][formulaG(j, k)], last_rng[i][2]);
                             }
                             break;
                         }

@@ -118,12 +118,12 @@ void do_delta(bio::var_io::default_record<> const & last_record,
 
                 if (options.skip_problematic)
                 {
-                    delta_visitor<std::minus<>, true> visitor{format.number, record.alt().size(), &hdr};
+                    delta_visitor<std::minus<>, true> visitor{it->id, format.number, record.alt().size(), &hdr};
                     std::visit(visitor, lit->value, it->value);
                 }
                 else
                 {
-                    delta_visitor<std::minus<>, false> visitor{format.number, record.alt().size(), &hdr};
+                    delta_visitor<std::minus<>, false> visitor{it->id, format.number, record.alt().size(), &hdr};
                     std::visit(visitor, lit->value, it->value);
                 }
 
@@ -135,30 +135,51 @@ void do_delta(bio::var_io::default_record<> const & last_record,
 
 void do_split(bio::var_io::default_record<> & record)
 {
+    size_t const n_alts  = record.alt().size();
+    size_t const ad_size = n_alts + 1;
+    size_t const gl_size = formulaG(n_alts, n_alts) + 1;
+
     for (auto it = record.genotypes().begin(); it != record.genotypes().end(); ++it)
     {
         if (it->id == "AD")
         {
             bio::var_io::genotype_element<bio::ownership::deep> ad_ref{.id = "AD_REF"};
-            auto & ad_ref_vec = ad_ref.value.emplace<std::vector<int8_t>>();
+            auto & ad_ref_vec = ad_ref.value.emplace<std::vector<int32_t>>();
 
             bio::var_io::genotype_element<bio::ownership::deep> ad_alt{.id = "AD_ALT"};
-            ;
-            auto & ad_alt_vec = ad_alt.value.emplace<std::vector<std::vector<int8_t>>>();
+            auto & ad_alt_vec = ad_alt.value.emplace<std::vector<std::vector<int32_t>>>();
 
             // the following assumes VCF input; TODO use std::visit
             auto & source = std::get<std::vector<std::vector<int32_t>>>(it->value);
 
+            bool fail = false;
             for (auto & inner_vec : source)
             {
-                ad_ref_vec.push_back(inner_vec[0]);
+                ad_ref_vec.emplace_back();
                 ad_alt_vec.emplace_back();
-                std::ranges::copy(inner_vec.begin() + 1, inner_vec.end(), std::back_inserter(ad_alt_vec.back()));
+
+                if (inner_vec.size() == 1) // only ref
+                {
+                    ad_ref_vec.back() = inner_vec[0];
+                    continue;
+                }
+                else if (inner_vec.size() != ad_size) // something is wrong
+                {
+                    fail = true; // failure means we just reatin the original, unsplit field
+                    break;
+                }
+
+                ad_ref_vec.back() = inner_vec[0];
+                std::swap(ad_alt_vec.back(), inner_vec);
+                ad_alt_vec.back().erase(ad_alt_vec.back().begin());
             }
 
-            record.genotypes().erase(it); // this invalidates other iterators
-            record.genotypes().push_back(std::move(ad_ref));
-            record.genotypes().push_back(std::move(ad_alt));
+            if (!fail)
+            {
+                record.genotypes().erase(it); // this invalidates other iterators
+                record.genotypes().push_back(std::move(ad_ref));
+                record.genotypes().push_back(std::move(ad_alt));
+            }
             break;
         }
     }
@@ -167,43 +188,58 @@ void do_split(bio::var_io::default_record<> & record)
     {
         if (it->id == "PL")
         {
-            bio::var_io::genotype_element<bio::ownership::deep> pl_shared{.id = "PL_SHARED"};
-            auto & pl_shared_vec = pl_shared.value.emplace<std::vector<std::vector<int16_t>>>();
-
-            bio::var_io::genotype_element<bio::ownership::deep> pl_uniq{.id = "PL_UNIQ"};
-            ;
-            auto & pl_uniq_vec = pl_uniq.value.emplace<std::vector<std::vector<int16_t>>>();
+            bio::var_io::genotype_element<bio::ownership::deep> pl1{.id = "PL1"};
+            auto & pl1_vec = pl1.value.emplace<std::vector<int32_t>>();
+            bio::var_io::genotype_element<bio::ownership::deep> pl2{.id = "PL2"};
+            auto & pl2_vec = pl2.value.emplace<std::vector<std::vector<int32_t>>>();
+            bio::var_io::genotype_element<bio::ownership::deep> pl3{.id = "PL3"};
+            auto & pl3_vec = pl3.value.emplace<std::vector<std::vector<int32_t>>>();
 
             // the following assumes VCF input; TODO use std::visit
             auto & source = std::get<std::vector<std::vector<int32_t>>>(it->value);
 
+            bool fail = false;
+
             for (auto & inner_vec : source)
             {
-                pl_shared_vec.emplace_back();
-                pl_uniq_vec.emplace_back();
+                pl1_vec.emplace_back();
+                pl2_vec.emplace_back();
+                pl3_vec.emplace_back();
 
-                if (inner_vec.size() < 3)
-                    break;
-
-                // TODO properly deduce which values to put where
-                pl_shared_vec.back().push_back(inner_vec[0]);
-                pl_shared_vec.back().push_back(inner_vec[2]);
-                pl_uniq_vec.back().push_back(inner_vec[1]);
-
-                if (inner_vec.size() >= 6)
+                if (inner_vec.size() != gl_size) // something is wrong
                 {
-                    pl_shared_vec.back().push_back(inner_vec[4]);
-                    pl_shared_vec.back().push_back(inner_vec[5]);
-                    pl_uniq_vec.back().push_back(inner_vec[3]);
+                    if (inner_vec.size() == 0)
+                    {
+                        pl1_vec.back() = bio::var_io::missing_value<int32_t>;
+                        continue; // empty vectors are OK/ignored
+                    }
+                    else
+                    {
+                        fail = true; // failure means we just reatin the original, unsplit field
+                        break;
+                    }
                 }
 
-                if (inner_vec.size() > 6)
-                    std::ranges::copy(inner_vec.begin() + 5, inner_vec.end(), std::back_inserter(pl_uniq_vec.back()));
+                // [0, 0] mapped to first value
+                pl1_vec.back() = inner_vec[0];
+
+                // [0, k>=1] mapped to second
+                for (size_t k = 1; k <= n_alts; ++k)
+                    pl2_vec.back().push_back(inner_vec[formulaG(0, k)]);
+
+                // [j>=1, k>=1] mapped to third
+                for (size_t j = 1; j <= n_alts; ++j)
+                    for (size_t k = j; k <= n_alts; ++k)
+                        pl3_vec.back().push_back(inner_vec[formulaG(j, k)]);
             }
 
-            record.genotypes().erase(it);
-            record.genotypes().push_back(std::move(pl_shared));
-            record.genotypes().push_back(std::move(pl_uniq));
+            if (!fail)
+            {
+                record.genotypes().erase(it);
+                record.genotypes().push_back(std::move(pl1));
+                record.genotypes().push_back(std::move(pl2));
+                record.genotypes().push_back(std::move(pl3));
+            }
             break;
         }
     }
@@ -234,26 +270,29 @@ void encode(encode_options_t const & options)
         // rename AD to AD_ALT
         hdr.formats.push_back({.id          = "AD_ALT",
                                .number      = bio::var_io::header_number::A,
-                               .type        = bio::var_io::value_type_id::vector_of_int8,
+                               .type        = bio::var_io::value_type_id::vector_of_int32,
                                .description = "ALT entries of AD field."});
-        //     hdr.formats.back().other_fields["Encoding"] = "RunLengthEncoding";
 
         // add ad_ref
         hdr.formats.push_back({.id          = "AD_REF",
                                .number      = 1,
-                               .type        = bio::var_io::value_type_id::int8,
+                               .type        = bio::var_io::value_type_id::int32,
                                .description = "REF entry of AD field."});
 
-        hdr.formats.push_back({.id          = "PL_SHARED",
-                               .number      = bio::var_io::header_number::dot,
-                               .type        = bio::var_io::value_type_id::int8,
-                               .description = "PL values that are often shared in a record."});
-        //     hdr.formats.back().other_fields["Encoding"] = "RunLengthEncoding";
+        hdr.formats.push_back({.id          = "PL1",
+                               .number      = 1,
+                               .type        = bio::var_io::value_type_id::int32,
+                               .description = "PL values for 00."});
 
-        hdr.formats.push_back({.id          = "PL_UNIQ",
+        hdr.formats.push_back({.id          = "PL2",
                                .number      = bio::var_io::header_number::A,
-                               .type        = bio::var_io::value_type_id::int8,
-                               .description = "PL values that are usually specific to sample."});
+                               .type        = bio::var_io::value_type_id::vector_of_int32,
+                               .description = "PL values for ab where a == 0 and b >= 1."});
+
+        hdr.formats.push_back({.id          = "PL3",
+                               .number      = bio::var_io::header_number::dot,
+                               .type        = bio::var_io::value_type_id::vector_of_int32,
+                               .description = "PL values for ab where a >= 1 and b >= 1"});
     }
 
     if (options.delta_compress)
