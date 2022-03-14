@@ -19,9 +19,8 @@ concept compatible_alph = (std::same_as<T1, char> && std::same_as<T2, char>) ||
                            std::integral<T2>) ||
                           (std::same_as<T1, float> && std::same_as<T1, float>);
 
-
-// see VCF spec
-constexpr size_t formulaG(size_t const a, size_t const b) { return (b * (b + 1)) / 2 + a; };
+// function alias
+auto & formulaG = bio::detail::vcf_gt_formula;
 
 template <typename op_t = std::minus<>, bool skip_problematic = true>
 struct delta_visitor
@@ -32,9 +31,11 @@ struct delta_visitor
 
     bio::var_io::header const * const hdr_ptr = nullptr;
 
+    // this is std::minus<> or std::plus<>
     static constexpr op_t op_impl{};
 
     static constexpr auto op = bio::detail::overloaded{
+      // floats are not substracted/added but XORed instead
       [](float const cur, float const last) -> float
       {
           union U
@@ -47,6 +48,7 @@ struct delta_visitor
           u.i ^= U{last}.i;
           return u.f;
       },
+      // this wraps op_impl to preserve missing_values
       []<typename cur_t, typename last_t>(cur_t const cur, last_t const last) -> cur_t
       {
           return (cur == bio::var_io::missing_value<cur_t> || last == bio::var_io::missing_value<last_t>)

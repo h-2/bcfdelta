@@ -143,20 +143,22 @@ void do_split(bio::var_io::default_record<> & record)
     {
         if (it->id == "AD")
         {
+            // the following assumes VCF input; TODO use std::visit
+            auto & source = std::get<seqan3::concatenated_sequences<std::vector<int32_t>>>(it->value);
+
             bio::var_io::genotype_element<bio::ownership::deep> ad_ref{.id = "AD_REF"};
             auto & ad_ref_vec = ad_ref.value.emplace<std::vector<int32_t>>();
+            ad_ref_vec.reserve(source.size());
 
             bio::var_io::genotype_element<bio::ownership::deep> ad_alt{.id = "AD_ALT"};
-            auto & ad_alt_vec = ad_alt.value.emplace<std::vector<std::vector<int32_t>>>();
-
-            // the following assumes VCF input; TODO use std::visit
-            auto & source = std::get<std::vector<std::vector<int32_t>>>(it->value);
+            auto & ad_alt_vec = ad_alt.value.emplace<seqan3::concatenated_sequences<std::vector<int32_t>>>();
+            ad_alt_vec.reserve(source.size());
+            ad_alt_vec.concat_reserve(source.size() * n_alts);
 
             bool fail = false;
-            for (auto & inner_vec : source)
+            for (auto && inner_vec : source)
             {
-                ad_ref_vec.emplace_back();
-                ad_alt_vec.emplace_back();
+                ad_alt_vec.push_back();
 
                 if (inner_vec.size() == 1) // only ref
                 {
@@ -169,9 +171,11 @@ void do_split(bio::var_io::default_record<> & record)
                     break;
                 }
 
-                ad_ref_vec.back() = inner_vec[0];
-                std::swap(ad_alt_vec.back(), inner_vec);
-                ad_alt_vec.back().erase(ad_alt_vec.back().begin());
+                // first element goes to ad_ref
+                ad_ref_vec.push_back(inner_vec[0]);
+                // other elements do to ad_alt
+                ad_alt_vec.push_back();
+                ad_alt_vec.last_append(inner_vec.subspan(1));
             }
 
             if (!fail)
@@ -188,23 +192,30 @@ void do_split(bio::var_io::default_record<> & record)
     {
         if (it->id == "PL")
         {
-            bio::var_io::genotype_element<bio::ownership::deep> pl1{.id = "PL1"};
-            auto & pl1_vec = pl1.value.emplace<std::vector<int32_t>>();
-            bio::var_io::genotype_element<bio::ownership::deep> pl2{.id = "PL2"};
-            auto & pl2_vec = pl2.value.emplace<std::vector<std::vector<int32_t>>>();
-            bio::var_io::genotype_element<bio::ownership::deep> pl3{.id = "PL3"};
-            auto & pl3_vec = pl3.value.emplace<std::vector<std::vector<int32_t>>>();
-
             // the following assumes VCF input; TODO use std::visit
-            auto & source = std::get<std::vector<std::vector<int32_t>>>(it->value);
+            auto & source = std::get<seqan3::concatenated_sequences<std::vector<int32_t>>>(it->value);
+
+            bio::var_io::genotype_element<bio::ownership::deep> pl1{.id = "PL1"};
+            auto &                                              pl1_vec = pl1.value.emplace<std::vector<int32_t>>();
+            pl1_vec.reserve(source.size());
+
+            bio::var_io::genotype_element<bio::ownership::deep> pl2{.id = "PL2"};
+            auto & pl2_vec = pl2.value.emplace<seqan3::concatenated_sequences<std::vector<int32_t>>>();
+            pl2_vec.reserve(source.size());
+            pl2_vec.concat_reserve(source.size() * n_alts);
+
+            bio::var_io::genotype_element<bio::ownership::deep> pl3{.id = "PL3"};
+            auto & pl3_vec = pl3.value.emplace<seqan3::concatenated_sequences<std::vector<int32_t>>>();
+            pl3_vec.reserve(source.size());
+            // TODO concat_reserve
 
             bool fail = false;
 
-            for (auto & inner_vec : source)
+            for (auto && inner_vec : source)
             {
                 pl1_vec.emplace_back();
-                pl2_vec.emplace_back();
-                pl3_vec.emplace_back();
+                pl2_vec.push_back();
+                pl3_vec.push_back();
 
                 if (inner_vec.size() != gl_size) // something is wrong
                 {
@@ -225,12 +236,12 @@ void do_split(bio::var_io::default_record<> & record)
 
                 // [0, k>=1] mapped to second
                 for (size_t k = 1; k <= n_alts; ++k)
-                    pl2_vec.back().push_back(inner_vec[formulaG(0, k)]);
+                    pl2_vec.last_push_back(inner_vec[formulaG(0, k)]);
 
                 // [j>=1, k>=1] mapped to third
                 for (size_t j = 1; j <= n_alts; ++j)
                     for (size_t k = j; k <= n_alts; ++k)
-                        pl3_vec.back().push_back(inner_vec[formulaG(j, k)]);
+                        pl3_vec.last_push_back(inner_vec[formulaG(j, k)]);
             }
 
             if (!fail)
@@ -270,28 +281,33 @@ void encode(encode_options_t const & options)
         // rename AD to AD_ALT
         hdr.formats.push_back({.id          = "AD_ALT",
                                .number      = bio::var_io::header_number::A,
-                               .type        = bio::var_io::value_type_id::vector_of_int32,
+                               .type        = "Integer",
+                               .type_id     = bio::var_io::value_type_id::vector_of_int32,
                                .description = "ALT entries of AD field."});
 
         // add ad_ref
         hdr.formats.push_back({.id          = "AD_REF",
                                .number      = 1,
-                               .type        = bio::var_io::value_type_id::int32,
+                               .type        = "Integer",
+                               .type_id     = bio::var_io::value_type_id::int32,
                                .description = "REF entry of AD field."});
 
         hdr.formats.push_back({.id          = "PL1",
                                .number      = 1,
-                               .type        = bio::var_io::value_type_id::int32,
+                               .type        = "Integer",
+                               .type_id     = bio::var_io::value_type_id::int32,
                                .description = "PL values for 00."});
 
         hdr.formats.push_back({.id          = "PL2",
                                .number      = bio::var_io::header_number::A,
-                               .type        = bio::var_io::value_type_id::vector_of_int32,
+                               .type        = "Integer",
+                               .type_id     = bio::var_io::value_type_id::vector_of_int32,
                                .description = "PL values for ab where a == 0 and b >= 1."});
 
         hdr.formats.push_back({.id          = "PL3",
                                .number      = bio::var_io::header_number::dot,
-                               .type        = bio::var_io::value_type_id::vector_of_int32,
+                               .type        = "Integer",
+                               .type_id     = bio::var_io::value_type_id::vector_of_int32,
                                .description = "PL values for ab where a >= 1 and b >= 1"});
     }
 
@@ -307,16 +323,18 @@ void encode(encode_options_t const & options)
         {
             bio::var_io::header::info_t info{.id          = "DELTA_COMP",
                                              .number      = 0,
-                                             .type        = bio::var_io::value_type_id::flag,
+                                             .type        = "Flag",
+                                             .type_id     = bio::var_io::value_type_id::flag,
                                              .description = "Records with this flag have delta-compressed fields."};
             hdr.infos.push_back(std::move(info));
         }
 
         if (!hdr.string_to_info_pos().contains("DELTA_REF"))
         {
-            bio::var_io::header::info_t info{.id     = "DELTA_REF",
-                                             .number = 0,
-                                             .type   = bio::var_io::value_type_id::flag,
+            bio::var_io::header::info_t info{.id      = "DELTA_REF",
+                                             .number  = 0,
+                                             .type    = "Flag",
+                                             .type_id = bio::var_io::value_type_id::flag,
                                              .description =
                                                "This record is an 'anchor' for subsequent compressed records."};
             hdr.infos.push_back(std::move(info));
@@ -326,10 +344,9 @@ void encode(encode_options_t const & options)
         for (bio::var_io::header::format_t & format : hdr.formats)
         {
             bool do_compress = false;
-            switch (format.type)
+            switch (format.type_id)
             {
                 case bio::var_io::value_type_id::char8:
-                case bio::var_io::value_type_id::vector_of_char8:
                     do_compress = options.compress_chars;
                     break;
                 case bio::var_io::value_type_id::float32:

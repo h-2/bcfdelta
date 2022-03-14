@@ -45,11 +45,11 @@ decode_options_t parse_decode_arguments(seqan3::argument_parser & parser)
     return options;
 }
 
-void undo_delta(bio::var_io::default_record<> const & ref_record,
-                bio::var_io::default_record<> &       record,
-                bio::var_io::header const &           in_hdr,
-                std::vector<int32_t> &                vec32_buffer,
-                std::vector<std::vector<int32_t>> &   vecvec32_buffer)
+void undo_delta(bio::var_io::default_record<> const &                  ref_record,
+                bio::var_io::default_record<> &                        record,
+                bio::var_io::header const &                            in_hdr,
+                std::vector<int32_t> &                                 vec32_buffer,
+                seqan3::concatenated_sequences<std::vector<int32_t>> & vecvec32_buffer)
 {
     for (auto it = record.genotypes().begin(); it != record.genotypes().end(); ++it)
     {
@@ -168,9 +168,9 @@ void decode(decode_options_t const & options)
     writer.set_header(out_hdr);
 
     /** decode **/
-    bio::var_io::default_record<>     ref_record;
-    std::vector<int32_t>              vec32_buffer;
-    std::vector<std::vector<int32_t>> vecvec32_buffer;
+    bio::var_io::default_record<>                        ref_record;
+    std::vector<int32_t>                                 vec32_buffer;
+    seqan3::concatenated_sequences<std::vector<int32_t>> vecvec32_buffer;
 
     // TODO add check that first record is REF
     for (bio::var_io::default_record<> & record : reader)
