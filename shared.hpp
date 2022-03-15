@@ -31,29 +31,25 @@ struct delta_visitor
 
     bio::var_io::header const * const hdr_ptr = nullptr;
 
-    // this is std::minus<> or std::plus<>
-    static constexpr op_t op_impl{};
-
     static constexpr auto op = bio::detail::overloaded{
       // floats are not substracted/added but XORed instead
-      [](float const cur, float const last) -> float
+      [](float & cur, float const last)
       {
-          union U
-          {
-              float   f;
-              int32_t i;
-          };
-          // undefined behaviour for the win!
-          U u{cur};
-          u.i ^= U{last}.i;
-          return u.f;
+          int32_t & cur_i = *(reinterpret_cast<int32_t*>(&cur));
+          cur_i ^= *(reinterpret_cast<int32_t const *>(&last));
       },
-      // this wraps op_impl to preserve missing_values
-      []<typename cur_t, typename last_t>(cur_t const cur, last_t const last) -> cur_t
+      // integers
+      []<typename cur_t, typename last_t>(cur_t & cur, last_t const last)
       {
-          return (cur == bio::var_io::missing_value<cur_t> || last == bio::var_io::missing_value<last_t>)
-                   ? cur
-                   : op_impl(cur, last);
+          if constexpr (std::same_as<op_t, std::minus<>>)
+              cur -= (cur == bio::var_io::missing_value<cur_t> || last == bio::var_io::missing_value<last_t>)
+                   ? 0
+                   : last;
+          else
+              cur += (cur == bio::var_io::missing_value<cur_t> || last == bio::var_io::missing_value<last_t>)
+                   ? 0
+                   : last;
+
       }};
 
     template <typename last_rng_t, typename cur_rng_t>
@@ -92,10 +88,25 @@ struct delta_visitor
                     throw delta_error{"wrong dimension"};
 
                 for (size_t j = 0; j < last_rng.size(); ++j)
-                    cur_rng[j] = op(cur_rng[j], last_rng[j]);
+                    op(cur_rng[j], last_rng[j]);
             }
             else if constexpr (cur_dim == 2)
             {
+                if constexpr (!std::same_as<cur_alph, char>)
+                {
+                    // If the concats are the same length, directly subtract the concats!
+                    // This does not perform checks on the inner lengths, so certain errors may not be detected
+                    // NOTE that this is not a problem per se, because the reverse operation will do the same
+                    if (std::span cur_concat = cur_rng.concat(), last_concat = last_rng.concat();
+                        cur_concat.size() == last_concat.size())
+                    {
+                        for (size_t i = 0; i < cur_concat.size(); ++i)
+                            op(cur_concat[i], last_concat[i]);
+
+                        return;
+                    }
+                }
+
                 switch (number)
                 {
                     case 0:
@@ -113,7 +124,7 @@ struct delta_visitor
                                     continue; // since this is dot, we can't assume anything anyways
 
                                 for (size_t j = 0; j < last_rng[i].size(); ++j)
-                                    cur_rng[i][j] = op(cur_rng[i][j], last_rng[i][j]);
+                                    op(cur_rng[i][j], last_rng[i][j]);
                             }
                         }
                         else if (id == "PL3") // this is n_alts per one
@@ -124,7 +135,7 @@ struct delta_visitor
                                     continue;
 
                                 for (size_t j = 0; j < cur_rng[i].size(); ++j)
-                                    cur_rng[i][j] = op(cur_rng[i][j], last_rng[i][0]);
+                                    op(cur_rng[i][j], last_rng[i][0]);
                             }
                         }
                         // else it cannot be compressed
@@ -144,7 +155,7 @@ struct delta_visitor
                             }
 
                             for (size_t j = 0; j < n_alts; ++j)
-                                cur_rng[i][j] = op(cur_rng[i][j], last_rng[i][0]);
+                                op(cur_rng[i][j], last_rng[i][0]);
                         }
                         break;
                     case bio::var_io::header_number::R:
@@ -165,10 +176,10 @@ struct delta_visitor
                                 continue;
                             }
 
-                            cur_rng[i][0] = op(cur_rng[i][0], last_rng[i][0]);
+                            op(cur_rng[i][0], last_rng[i][0]);
 
                             for (size_t j = 1; j < n_alts + 1; ++j)
-                                cur_rng[i][j] = op(cur_rng[i][j], last_rng[i][1]);
+                                op(cur_rng[i][j], last_rng[i][1]);
                         }
                         break;
                     case bio::var_io::header_number::G:
@@ -193,16 +204,16 @@ struct delta_visitor
                                 }
 
                                 // [0, 0] mapped to first value
-                                cur_rng[i][0] = op(cur_rng[i][0], last_rng[i][0]);
+                                op(cur_rng[i][0], last_rng[i][0]);
 
                                 // [0, k>=1] mapped to second
                                 for (size_t k = 1; k <= n_alts; ++k)
-                                    cur_rng[i][formulaG(0, k)] = op(cur_rng[i][formulaG(0, k)], last_rng[i][1]);
+                                    op(cur_rng[i][formulaG(0, k)], last_rng[i][1]);
 
                                 // [j>=1, k>=1] mapped to third
                                 for (size_t j = 1; j <= n_alts; ++j)
                                     for (size_t k = j; k <= n_alts; ++k)
-                                        cur_rng[i][formulaG(j, k)] = op(cur_rng[i][formulaG(j, k)], last_rng[i][2]);
+                                        op(cur_rng[i][formulaG(j, k)], last_rng[i][2]);
                             }
                             break;
                         }
@@ -222,15 +233,14 @@ struct delta_visitor
                             }
 
                             for (size_t j = 0; j < last_rng[i].size(); ++j)
-                                cur_rng[i][j] = op(cur_rng[i][j], last_rng[i][j]);
+                                op(cur_rng[i][j], last_rng[i][j]);
                         }
                         break;
                 }
             }
-            else
+            else // cur_dim == 3
             {
-                throw std::runtime_error{std::string{"Wrong dimensions between records.\nFunction signature:"} +
-                                         std::string{__PRETTY_FUNCTION__}};
+                throw delta_error{"Handling of vector-of-strings in Genotype not implemented"};
             }
         }
         else
