@@ -35,21 +35,18 @@ struct delta_visitor
       // floats are not substracted/added but XORed instead
       [](float & cur, float const last)
       {
-          int32_t & cur_i = *(reinterpret_cast<int32_t*>(&cur));
+          int32_t & cur_i = *(reinterpret_cast<int32_t *>(&cur));
           cur_i ^= *(reinterpret_cast<int32_t const *>(&last));
       },
       // integers
       []<typename cur_t, typename last_t>(cur_t & cur, last_t const last)
       {
           if constexpr (std::same_as<op_t, std::minus<>>)
-              cur -= (cur == bio::var_io::missing_value<cur_t> || last == bio::var_io::missing_value<last_t>)
-                   ? 0
-                   : last;
+              cur -=
+                (cur == bio::var_io::missing_value<cur_t> || last == bio::var_io::missing_value<last_t>) ? 0 : last;
           else
-              cur += (cur == bio::var_io::missing_value<cur_t> || last == bio::var_io::missing_value<last_t>)
-                   ? 0
-                   : last;
-
+              cur +=
+                (cur == bio::var_io::missing_value<cur_t> || last == bio::var_io::missing_value<last_t>) ? 0 : last;
       }};
 
     template <typename last_rng_t, typename cur_rng_t>

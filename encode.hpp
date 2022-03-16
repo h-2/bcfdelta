@@ -5,6 +5,8 @@
 #include <bio/var_io/reader.hpp>
 #include <bio/var_io/writer.hpp>
 
+#include "encode_delta.hpp"
+#include "encode_split.hpp"
 #include "shared.hpp"
 
 struct encode_options_t
@@ -90,170 +92,6 @@ encode_options_t parse_encode_arguments(seqan3::argument_parser & parser)
     parser.parse();
 
     return options;
-}
-
-void do_delta(bio::var_io::default_record<> const & last_record,
-              bio::var_io::default_record<> &       record,
-              bio::var_io::header const &           hdr,
-              encode_options_t const &              options)
-{
-    for (auto it = record.genotypes().begin(); it != record.genotypes().end(); ++it)
-    {
-        bio::var_io::header::format_t const & format = hdr.formats[hdr.string_to_format_pos().at(it->id)];
-
-        if (!format.other_fields.contains("Encoding") || format.other_fields.at("Encoding") != "Delta")
-            continue;
-
-        for (auto lit = last_record.genotypes().begin(); lit != last_record.genotypes().end(); ++lit)
-        {
-            if (it->id == lit->id)
-            {
-                if (!bio::detail::type_id_is_compatible(bio::var_io::value_type_id{it->value.index()},
-                                                        bio::var_io::value_type_id{lit->value.index()}))
-                {
-                    throw delta_error{"The type of this record's ",
-                                      it->id,
-                                      " field did is not compatible with the previous record."};
-                }
-
-                if (options.skip_problematic)
-                {
-                    delta_visitor<std::minus<>, true> visitor{it->id, format.number, record.alt().size(), &hdr};
-                    std::visit(visitor, lit->value, it->value);
-                }
-                else
-                {
-                    delta_visitor<std::minus<>, false> visitor{it->id, format.number, record.alt().size(), &hdr};
-                    std::visit(visitor, lit->value, it->value);
-                }
-
-                break;
-            }
-        }
-    }
-}
-
-void do_split(bio::var_io::default_record<> & record)
-{
-    size_t const n_alts  = record.alt().size();
-    size_t const ad_size = n_alts + 1;
-    size_t const gl_size = formulaG(n_alts, n_alts) + 1;
-
-    for (auto it = record.genotypes().begin(); it != record.genotypes().end(); ++it)
-    {
-        if (it->id == "AD")
-        {
-            // the following assumes VCF input; TODO use std::visit
-            auto & source = std::get<seqan3::concatenated_sequences<std::vector<int32_t>>>(it->value);
-
-            bio::var_io::genotype_element<bio::ownership::deep> ad_ref{.id = "AD_REF"};
-            auto & ad_ref_vec = ad_ref.value.emplace<std::vector<int32_t>>();
-            ad_ref_vec.reserve(source.size());
-
-            bio::var_io::genotype_element<bio::ownership::deep> ad_alt{.id = "AD_ALT"};
-            auto & ad_alt_vec = ad_alt.value.emplace<seqan3::concatenated_sequences<std::vector<int32_t>>>();
-            ad_alt_vec.reserve(source.size());
-            ad_alt_vec.concat_reserve(source.size() * n_alts);
-
-            bool fail = false;
-            for (auto && inner_vec : source)
-            {
-                ad_alt_vec.push_back();
-
-                if (inner_vec.size() == 1) // only ref
-                {
-                    ad_ref_vec.back() = inner_vec[0];
-                    continue;
-                }
-                else if (inner_vec.size() != ad_size) // something is wrong
-                {
-                    fail = true; // failure means we just reatin the original, unsplit field
-                    break;
-                }
-
-                // first element goes to ad_ref
-                ad_ref_vec.push_back(inner_vec[0]);
-                // other elements do to ad_alt
-                ad_alt_vec.push_back();
-                ad_alt_vec.last_append(inner_vec.subspan(1));
-            }
-
-            if (!fail)
-            {
-                record.genotypes().erase(it); // this invalidates other iterators
-                record.genotypes().push_back(std::move(ad_ref));
-                record.genotypes().push_back(std::move(ad_alt));
-            }
-            break;
-        }
-    }
-
-    for (auto it = record.genotypes().begin(); it != record.genotypes().end(); ++it)
-    {
-        if (it->id == "PL")
-        {
-            // the following assumes VCF input; TODO use std::visit
-            auto & source = std::get<seqan3::concatenated_sequences<std::vector<int32_t>>>(it->value);
-
-            bio::var_io::genotype_element<bio::ownership::deep> pl1{.id = "PL1"};
-            auto &                                              pl1_vec = pl1.value.emplace<std::vector<int32_t>>();
-            pl1_vec.reserve(source.size());
-
-            bio::var_io::genotype_element<bio::ownership::deep> pl2{.id = "PL2"};
-            auto & pl2_vec = pl2.value.emplace<seqan3::concatenated_sequences<std::vector<int32_t>>>();
-            pl2_vec.reserve(source.size());
-            pl2_vec.concat_reserve(source.size() * n_alts);
-
-            bio::var_io::genotype_element<bio::ownership::deep> pl3{.id = "PL3"};
-            auto & pl3_vec = pl3.value.emplace<seqan3::concatenated_sequences<std::vector<int32_t>>>();
-            pl3_vec.reserve(source.size());
-            // TODO concat_reserve
-
-            bool fail = false;
-
-            for (auto && inner_vec : source)
-            {
-                pl1_vec.emplace_back();
-                pl2_vec.push_back();
-                pl3_vec.push_back();
-
-                if (inner_vec.size() != gl_size) // something is wrong
-                {
-                    if (inner_vec.size() == 0)
-                    {
-                        pl1_vec.back() = bio::var_io::missing_value<int32_t>;
-                        continue; // empty vectors are OK/ignored
-                    }
-                    else
-                    {
-                        fail = true; // failure means we just reatin the original, unsplit field
-                        break;
-                    }
-                }
-
-                // [0, 0] mapped to first value
-                pl1_vec.back() = inner_vec[0];
-
-                // [0, k>=1] mapped to second
-                for (size_t k = 1; k <= n_alts; ++k)
-                    pl2_vec.last_push_back(inner_vec[formulaG(0, k)]);
-
-                // [j>=1, k>=1] mapped to third
-                for (size_t j = 1; j <= n_alts; ++j)
-                    for (size_t k = j; k <= n_alts; ++k)
-                        pl3_vec.last_push_back(inner_vec[formulaG(j, k)]);
-            }
-
-            if (!fail)
-            {
-                record.genotypes().erase(it);
-                record.genotypes().push_back(std::move(pl1));
-                record.genotypes().push_back(std::move(pl2));
-                record.genotypes().push_back(std::move(pl3));
-            }
-            break;
-        }
-    }
 }
 
 void encode(encode_options_t const & options)
@@ -369,6 +207,8 @@ void encode(encode_options_t const & options)
 
     writer.set_header(hdr);
 
+    split_buffers_t split_buffers;
+
     std::unique_ptr<bio::var_io::default_record<>> lrecord{new bio::var_io::default_record<>};
     std::unique_ptr<bio::var_io::default_record<>> brecord{new bio::var_io::default_record<>};
     lrecord->chrom() = "invalid";
@@ -381,7 +221,7 @@ void encode(encode_options_t const & options)
 
         /* split fields */
         if (options.split_fields)
-            do_split(record);
+            do_split(record, split_buffers);
 
         /* delta compression */
         if (options.delta_compress)
@@ -399,13 +239,18 @@ void encode(encode_options_t const & options)
             else // this will be delta-compressed
             {
                 record.info().push_back({.id = "DELTA_COMP", .value = true});
-                do_delta(last_record, record, hdr, options);
+                do_delta(last_record, record, hdr, options.skip_problematic);
             }
         }
 
         /* write the record */
         writer.push_back(record);
 
+        /* get back some buffers */
+        if (options.split_fields)
+            salvage_split_buffers(record, split_buffers);
+
+        /* make the backup of the current record the "last record" */
         if (options.delta_compress && record.alt().size() == 1)
             std::swap(lrecord, brecord);
     }
