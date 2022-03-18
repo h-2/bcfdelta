@@ -62,12 +62,36 @@ void undo_delta(bio::var_io::default_record<> const &                  ref_recor
         {
             if (it->id == lit->id)
             {
+                if (!bio::detail::type_id_is_compatible(bio::var_io::value_type_id{it->value.index()},
+                                                        bio::var_io::value_type_id{lit->value.index()}))
+                {
+                    throw std::runtime_error{"Incompatible types in variants"};
+                }
+
+                auto get_max = bio::detail::overloaded{
+                  [](auto const &)
+                  {
+                      throw delta_error{"Unreachable"};
+                      return int64_t{};
+                  },
+                  []<std::integral T>(std::vector<T> const & values) { return (int64_t)std::ranges::max(values); },
+                  []<typename T>(seqan3::concatenated_sequences<std::vector<T>> const & values)
+                  { return (int64_t)std::ranges::max(values.concat()); }};
+
+                // this heuristic is not tight
+                int64_t plus_max = std::visit(get_max, it->value) + std::visit(get_max, lit->value);
+
                 // current vector might be over int8 while values might become int32
                 switch (bio::var_io::value_type_id{it->value.index()})
                 {
                     case bio::var_io::value_type_id::int8:
+                        if (plus_max <= std::numeric_limits<int8_t>::max())
+                            break;
+                        [[fallthrough]];
                     case bio::var_io::value_type_id::int16:
                         {
+                            if (plus_max <= std::numeric_limits<int16_t>::max())
+                                break;
                             auto fun = [&](auto & rng)
                             {
                                 using rng_t = decltype(rng);
@@ -78,7 +102,12 @@ void undo_delta(bio::var_io::default_record<> const &                  ref_recor
                                 }
                                 else
                                 {
-                                    throw std::runtime_error{"Unreachable code reached."};
+                                    throw delta_error{"Bug encountered, please report:\n",
+                                                      __FILE__,
+                                                      ": ",
+                                                      __LINE__,
+                                                      "\n",
+                                                      __PRETTY_FUNCTION__};
                                 }
                             };
 
@@ -87,21 +116,35 @@ void undo_delta(bio::var_io::default_record<> const &                  ref_recor
                             break;
                         }
                     case bio::var_io::value_type_id::vector_of_int8:
+                        if (plus_max <= std::numeric_limits<int8_t>::max())
+                            break;
+                        [[fallthrough]];
                     case bio::var_io::value_type_id::vector_of_int16:
                         {
+                            if (plus_max <= std::numeric_limits<int16_t>::max())
+                                break;
                             auto fun = [&](auto & rng)
                             {
                                 using rng_t = decltype(rng);
-                                if constexpr (std::same_as<rng_t, std::vector<std::vector<int8_t>> &> ||
-                                              std::same_as<rng_t, std::vector<std::vector<int16_t>> &>)
+                                if constexpr (std::same_as<rng_t,
+                                                           seqan3::concatenated_sequences<std::vector<int8_t>> &> ||
+                                              std::same_as<rng_t,
+                                                           seqan3::concatenated_sequences<std::vector<int16_t>> &>)
                                 {
-                                    vecvec32_buffer.resize(std::ranges::size(rng));
+                                    vecvec32_buffer.clear();
+                                    vecvec32_buffer.reserve(rng.size());
+                                    vecvec32_buffer.concat_reserve(rng.concat_size());
                                     for (size_t i = 0; i < std::ranges::size(rng); ++i)
-                                        bio::detail::sized_range_copy(rng[i], vecvec32_buffer[i]);
+                                        vecvec32_buffer.push_back(rng[i]);
                                 }
                                 else
                                 {
-                                    throw std::runtime_error{"Unreachable code reached."};
+                                    throw delta_error{"Bug encountered, please report:\n",
+                                                      __FILE__,
+                                                      ": ",
+                                                      __LINE__,
+                                                      "\n",
+                                                      __PRETTY_FUNCTION__};
                                 }
                             };
 
@@ -111,12 +154,6 @@ void undo_delta(bio::var_io::default_record<> const &                  ref_recor
                         }
                     default:
                         break;
-                }
-
-                if (!bio::detail::type_id_is_compatible(bio::var_io::value_type_id{it->value.index()},
-                                                        bio::var_io::value_type_id{lit->value.index()}))
-                {
-                    throw std::runtime_error{"Incompatible types in variants"};
                 }
 
                 delta_visitor<std::plus<>> visitor{it->id, format.number, record.alt().size(), &in_hdr};
@@ -169,6 +206,7 @@ void decode(decode_options_t const & options)
 
     /** decode **/
     bio::var_io::default_record<>                        ref_record;
+    // TODO these buffers don't work as expected
     std::vector<int32_t>                                 vec32_buffer;
     seqan3::concatenated_sequences<std::vector<int32_t>> vecvec32_buffer;
 
