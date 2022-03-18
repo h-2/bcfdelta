@@ -59,19 +59,16 @@ struct delta_visitor
 
         if constexpr (compatible_alph<last_alph, cur_alph> && last_dim == cur_dim)
         {
-            size_t const n_sample = hdr_ptr->column_labels.size() - 9;
-            if (last_rng.size() != n_sample)
-                throw delta_error{"Last outer range size: ",
-                                  last_rng.size(),
-                                  ". Expected: ",
+            size_t const n_sample = std::min(last_rng.size(), cur_rng.size());
+
+            if (size_t n_sample_hdr = hdr_ptr->column_labels.size() - 9; n_sample > n_sample_hdr)
+            {
+                throw delta_error{"Current range has more entries (",
                                   n_sample,
-                                  " (number of samples)."};
-            if (cur_rng.size() != n_sample)
-                throw delta_error{"Current outer range size: ",
-                                  cur_rng.size(),
-                                  ". Expected: ",
-                                  n_sample,
-                                  " (number of samples)."};
+                                  ") than there are samples in header (",
+                                  n_sample_hdr,
+                                  ")."};
+            }
 
             constexpr auto error_or_not = [](auto &&... args)
             {
@@ -84,7 +81,7 @@ struct delta_visitor
                 if (number != 1)
                     throw delta_error{"wrong dimension"};
 
-                for (size_t j = 0; j < last_rng.size(); ++j)
+                for (size_t j = 0; j < n_sample; ++j)
                     op(cur_rng[j], last_rng[j]);
             }
             else if constexpr (cur_dim == 2)
@@ -95,7 +92,7 @@ struct delta_visitor
                     // This does not perform checks on the inner lengths, so certain errors may not be detected
                     // NOTE that this is not a problem per se, because the reverse operation will do the same
                     if (std::span cur_concat = cur_rng.concat(), last_concat = last_rng.concat();
-                        cur_concat.size() == last_concat.size())
+                        cur_concat.size() == last_concat.size() && cur_rng.size() == last_rng.size())
                     {
                         for (size_t i = 0; i < cur_concat.size(); ++i)
                             op(cur_concat[i], last_concat[i]);
@@ -115,7 +112,7 @@ struct delta_visitor
                     case bio::var_io::header_number::dot:
                         if (n_alts == 1) // assuming that number is still same per record
                         {
-                            for (size_t i = 0; i < last_rng.size(); ++i)
+                            for (size_t i = 0; i < n_sample; ++i)
                             {
                                 if (last_rng[i].size() != cur_rng[i].size())
                                     continue; // since this is dot, we can't assume anything anyways
@@ -138,7 +135,7 @@ struct delta_visitor
                         // else it cannot be compressed
                         break;
                     case bio::var_io::header_number::A:
-                        for (size_t i = 0; i < last_rng.size(); ++i)
+                        for (size_t i = 0; i < n_sample; ++i)
                         {
                             if (last_rng[i].size() != 1)
                             {
@@ -156,7 +153,7 @@ struct delta_visitor
                         }
                         break;
                     case bio::var_io::header_number::R:
-                        for (size_t i = 0; i < last_rng.size(); ++i)
+                        for (size_t i = 0; i < n_sample; ++i)
                         {
                             if (last_rng[i].size() != 2)
                             {
@@ -183,7 +180,7 @@ struct delta_visitor
                         {
                             size_t const inner_size = formulaG(n_alts, n_alts) + 1;
 
-                            for (size_t i = 0; i < last_rng.size(); ++i)
+                            for (size_t i = 0; i < n_sample; ++i)
                             {
                                 if (last_rng[i].size() != 3)
                                 {
@@ -216,7 +213,7 @@ struct delta_visitor
                         }
                     default: // any number > 1
                         assert(number > 1);
-                        for (size_t i = 0; i < last_rng.size(); ++i)
+                        for (size_t i = 0; i < n_sample; ++i)
                         {
                             if (last_rng[i].size() != number)
                             {
