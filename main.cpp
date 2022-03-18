@@ -43,9 +43,24 @@ int main(int argc, char ** argv)
             std::cerr << "Unknown subcommand: " << sub_parser.info.app_name << '\n';
         }
     }
+#ifdef NDEBUG
     catch (seqan3::argument_parser_error const & ext) // catch user errors
+    {
+        seqan3::debug_stream << "[bcfdelta] [arg_parser] " << ext.what() << "\n"; // customise your error message
+        return 1;
+    }
+    catch (bio::bio_error const & ext) // catch user errors
+    {
+        seqan3::debug_stream << "[bcfdelta] [b.i.o] " << ext.what() << "\n"; // customise your error message
+        return 1;
+    }
+    catch (delta_error const & ext) // catch user errors
     {
         seqan3::debug_stream << "[bcfdelta] " << ext.what() << "\n"; // customise your error message
         return 1;
     }
+#else
+    catch (std::type_identity<void>)
+    {}
+#endif
 }
